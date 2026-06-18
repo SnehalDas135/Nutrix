@@ -1,7 +1,7 @@
 /* ============================================================
-   CONFIGURATION — put your Anthropic API key here
+   CONFIGURATION — put your Google Gemini API key here
    ============================================================
-   1. Get a key at https://console.anthropic.com/settings/keys
+   1. Get a free key at https://aistudio.google.com/apikey
    2. Paste it below between the quotes.
    3. IMPORTANT: this puts your key in client-side code. That's
       fine for a personal/local tool, but if you deploy this
@@ -10,26 +10,58 @@
       serverless proxy instead (see DEPLOY.md for instructions).
    ============================================================ */
 var CONFIG = {
-  API_KEY: "YOUR_ANTHROPIC_API_KEY_HERE",
-  API_URL: "https://api.anthropic.com/v1/messages",
-  MODEL: "claude-sonnet-4-6"
+  API_KEY: "YOUR_GEMINI_API_KEY_HERE",
+  MODEL: "gemini-2.0-flash"
 };
 
-if(!CONFIG.API_KEY || CONFIG.API_KEY === "YOUR_ANTHROPIC_API_KEY_HERE"){
+if(!CONFIG.API_KEY || CONFIG.API_KEY === "YOUR_GEMINI_API_KEY_HERE"){
   document.getElementById('setup-banner').classList.add('show');
 }
 
-function apiHeaders(){
-  return {
-    'Content-Type':'application/json',
-    'x-api-key': CONFIG.API_KEY,
-    'anthropic-version': '2023-06-01',
-    'anthropic-dangerous-direct-browser-access': 'true'
+function geminiUrl(){
+  return 'https://generativelanguage.googleapis.com/v1beta/models/'+CONFIG.MODEL+':generateContent?key='+CONFIG.API_KEY;
+}
+
+function toGeminiParts(content){
+  if(typeof content === 'string') return [{text: content}];
+  var parts = [];
+  content.forEach(function(part){
+    if(part.type === 'text') parts.push({text: part.text});
+    if(part.type === 'image') parts.push({inline_data: {mime_type: part.source.media_type, data: part.source.data}});
+  });
+  return parts;
+}
+
+function toGeminiContents(messages){
+  return messages.map(function(m){
+    return {
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: toGeminiParts(m.content)
+    };
+  });
+}
+
+async function callGemini(opts){
+  var body = {
+    contents: opts.contents,
+    generationConfig: {maxOutputTokens: opts.maxTokens || 1000}
   };
+  if(opts.system) body.systemInstruction = {parts: [{text: opts.system}]};
+  var r = await fetch(geminiUrl(), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  var d = await r.json();
+  if(d.error) return {error: d.error.message || 'Gemini API error'};
+  var text = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
+  text = text && text.map(function(p){ return p.text || ''; }).join('').trim();
+  if(!text) return {error: 'No response from Gemini'};
+  return {text: text};
 }
 
 var state={calories:0,protein:0,carbs:0,fat:0,fiber:0,calTarget:2200,protTarget:165,carbTarget:248,fatTarget:61,fiberTarget:30,
-  chatHistory:[{role:'assistant',content:"Hey! I'm your Nutrix AI — powered by Claude. Ask me anything about your nutrition, log meals by description, or share a food photo for instant analysis."}],
+  chatHistory:[{role:'assistant',content:"Hey! I'm your Nutrix AI — powered by Gemini. Ask me anything about your nutrition, log meals by description, or share a food photo for instant analysis."}],
   chatPhotoB64:null,chatPhotoMime:null};
 
 function showPage(id,btn){
@@ -96,38 +128,43 @@ function initCharts(){
 }
 
 function checkKey(){
-  if(!CONFIG.API_KEY || CONFIG.API_KEY === "YOUR_ANTHROPIC_API_KEY_HERE"){
-    alert("Please add your Anthropic API key in the CONFIG section of the code first. See DEPLOY.md for instructions.");
+  if(!CONFIG.API_KEY || CONFIG.API_KEY === "YOUR_GEMINI_API_KEY_HERE"){
+    alert("Please add your Gemini API key in the CONFIG section of script.js first. Get one free at aistudio.google.com/apikey");
     return false;
   }
   return true;
 }
 
+var NUTRITION_PROMPT_SUFFIX = 'Reply in this exact format — no extra text:\nFood: [name]\nCalories: [N]\nProtein: [N]g\nCarbs: [N]g\nFat: [N]g\nFiber: [N]g\nNote: [1 sentence tip]';
+
 function renderNutritionResult(foodName,cal,prot,carbs,fat,note){
   return '<strong>'+foodName+'</strong><br><span class="result-cal">'+cal+' kcal</span> &nbsp;·&nbsp; Protein <span class="result-protein">'+prot+'g</span> &nbsp;·&nbsp; Carbs <span class="result-carbs">'+carbs+'g</span> &nbsp;·&nbsp; Fat <span class="result-fat">'+fat+'g</span>'+(note?'<br><span class="result-note">'+note+'</span>':'');
+}
+
+function applyNutritionText(text, res, fallbackName){
+  var lines=text.split('\n');
+  var parse=function(k){var l=lines.find(function(x){return x.startsWith(k);});return l?parseInt(l.split(':')[1])||0:0;};
+  var cal=parse('Calories'),prot=parse('Protein'),carbs=parse('Carbs'),fat=parse('Fat'),fiber=parse('Fiber');
+  state.calories+=cal;state.protein+=prot;state.carbs+=carbs;state.fat+=fat;state.fiber+=fiber;
+  var foodName=(lines[0]||'').replace('Food:','').trim()||fallbackName;
+  var note=(lines.find(function(x){return x.startsWith('Note');})||'').replace('Note:','').trim();
+  res.innerHTML=renderNutritionResult(foodName,cal,prot,carbs,fat,note);
+  var item=document.createElement('div');item.className='meal-item';
+  item.innerHTML='<div><div class="meal-name">'+foodName+'</div><div class="meal-macros">Carbs '+carbs+'g · Protein '+prot+'g · Fat '+fat+'g</div></div><div class="meal-cal">'+cal+'</div>';
+  document.getElementById('meal-list').appendChild(item);
+  animateRings();
 }
 
 async function logFoodAI(){
   var txt=document.getElementById('food-input').value.trim();if(!txt)return;
   if(!checkKey())return;
   document.getElementById('food-input').value='';
-  var res=document.getElementById('ai-result');res.style.display='block';res.innerHTML='<span class="ai-muted">Analysing with Claude...</span>';
+  var res=document.getElementById('ai-result');res.style.display='block';res.innerHTML='<span class="ai-muted">Analysing with Gemini...</span>';
   try{
-    var r=await fetch(CONFIG.API_URL,{method:'POST',headers:apiHeaders(),body:JSON.stringify({model:CONFIG.MODEL,max_tokens:1000,messages:[{role:'user',content:'You are a precise nutrition analyst. The user logged: "'+txt+'". Estimate calories, protein (g), carbs (g), fat (g), fiber (g). Reply in this exact format — no extra text:\nFood: [name]\nCalories: [N]\nProtein: [N]g\nCarbs: [N]g\nFat: [N]g\nFiber: [N]g\nNote: [1 sentence tip]'}]})});
-    var d=await r.json();
-    if(d.error){res.innerHTML='<span class="ai-error">API error: '+d.error.message+'</span>';return;}
-    var text=d.content&&d.content[0]&&d.content[0].text||'';
-    var lines=text.split('\n');
-    var parse=function(k){var l=lines.find(function(x){return x.startsWith(k);});return l?parseInt(l.split(':')[1])||0:0;};
-    var cal=parse('Calories'),prot=parse('Protein'),carbs=parse('Carbs'),fat=parse('Fat'),fiber=parse('Fiber');
-    state.calories+=cal;state.protein+=prot;state.carbs+=carbs;state.fat+=fat;state.fiber+=fiber;
-    var foodName=(lines[0]||'').replace('Food:','').trim()||txt;
-    var note=(lines.find(function(x){return x.startsWith('Note');})||'').replace('Note:','').trim();
-    res.innerHTML=renderNutritionResult(foodName,cal,prot,carbs,fat,note);
-    var item=document.createElement('div');item.className='meal-item';
-    item.innerHTML='<div><div class="meal-name">'+foodName+'</div><div class="meal-macros">Carbs '+carbs+'g · Protein '+prot+'g · Fat '+fat+'g</div></div><div class="meal-cal">'+cal+'</div>';
-    document.getElementById('meal-list').appendChild(item);
-    animateRings();
+    var prompt='You are a precise nutrition analyst. The user logged: "'+txt+'". Estimate calories, protein (g), carbs (g), fat (g), fiber (g). '+NUTRITION_PROMPT_SUFFIX;
+    var d=await callGemini({contents:[{role:'user',parts:[{text:prompt}]}]});
+    if(d.error){res.innerHTML='<span class="ai-error">API error: '+d.error+'</span>';return;}
+    applyNutritionText(d.text, res, txt);
   }catch(e){res.innerHTML='<span class="ai-error">Error: '+e.message+'</span>';}
 }
 
@@ -141,21 +178,13 @@ function handlePhoto(input){
     var res=document.getElementById('ai-result');res.style.display='block';res.innerHTML='<span class="ai-muted">Analysing your photo...</span>';
     var b64=e.target.result.split(',')[1];
     try{
-      var r=await fetch(CONFIG.API_URL,{method:'POST',headers:apiHeaders(),body:JSON.stringify({model:CONFIG.MODEL,max_tokens:1000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:file.type,data:b64}},{type:'text',text:'You are a precise nutrition analyst. Identify all food in this image and estimate totals. Reply:\nFood: [description]\nCalories: [N]\nProtein: [N]g\nCarbs: [N]g\nFat: [N]g\nFiber: [N]g\nNote: [1 sentence tip]'}]}]})});
-      var d=await r.json();
-      if(d.error){res.innerHTML='<span class="ai-error">API error: '+d.error.message+'</span>';return;}
-      var text=d.content&&d.content[0]&&d.content[0].text||'';
-      var lines=text.split('\n');
-      var parse=function(k){var l=lines.find(function(x){return x.startsWith(k);});return l?parseInt(l.split(':')[1])||0:0;};
-      var cal=parse('Calories'),prot=parse('Protein'),carbs=parse('Carbs'),fat=parse('Fat'),fiber=parse('Fiber');
-      state.calories+=cal;state.protein+=prot;state.carbs+=carbs;state.fat+=fat;state.fiber+=fiber;
-      var foodName=(lines[0]||'').replace('Food:','').trim()||'Analysed meal';
-      var note=(lines.find(function(x){return x.startsWith('Note');})||'').replace('Note:','').trim();
-      res.innerHTML=renderNutritionResult(foodName,cal,prot,carbs,fat,note);
-      var item=document.createElement('div');item.className='meal-item';
-      item.innerHTML='<div><div class="meal-name">'+foodName+'</div><div class="meal-macros">Carbs '+carbs+'g · Protein '+prot+'g · Fat '+fat+'g</div></div><div class="meal-cal">'+cal+'</div>';
-      document.getElementById('meal-list').appendChild(item);
-      animateRings();
+      var prompt='You are a precise nutrition analyst. Identify all food in this image and estimate totals. '+NUTRITION_PROMPT_SUFFIX;
+      var d=await callGemini({contents:[{role:'user',parts:[
+        {inline_data:{mime_type:file.type,data:b64}},
+        {text:prompt}
+      ]}]});
+      if(d.error){res.innerHTML='<span class="ai-error">API error: '+d.error+'</span>';return;}
+      applyNutritionText(d.text, res, 'Analysed meal');
     }catch(e){res.innerHTML='<span class="ai-error">Error: '+e.message+'</span>';}
   };
   reader.readAsDataURL(file);
@@ -181,13 +210,14 @@ async function sendChat(){
   var typing=document.getElementById('typing-indicator');typing.style.display='flex';
   var sys='You are the Nutrix AI — a knowledgeable, concise nutrition coach. User targets: '+state.calTarget+' kcal, Protein '+state.protTarget+'g, Carbs '+state.carbTarget+'g, Fat '+state.fatTarget+'g. Today consumed: '+state.calories+' kcal, Protein '+state.protein+'g, Carbs '+state.carbs+'g. Give evidence-based, practical advice. Be warm but concise (3–4 sentences max unless explaining something complex).';
   try{
-    var r=await fetch(CONFIG.API_URL,{method:'POST',headers:apiHeaders(),body:JSON.stringify({model:CONFIG.MODEL,max_tokens:1000,system:sys,messages:state.chatHistory.slice(-10)})});
-    var d=await r.json();
+    var d=await callGemini({
+      system: sys,
+      contents: toGeminiContents(state.chatHistory.slice(-10))
+    });
     typing.style.display='none';
-    if(d.error){addChatMsg('API error: '+d.error.message,'ai');return;}
-    var reply=d.content&&d.content[0]&&d.content[0].text||'Sorry, I had trouble with that.';
-    addChatMsg(reply,'ai');
-    state.chatHistory.push({role:'assistant',content:reply});
+    if(d.error){addChatMsg('API error: '+d.error,'ai');return;}
+    addChatMsg(d.text,'ai');
+    state.chatHistory.push({role:'assistant',content:d.text});
   }catch(e){typing.style.display='none';addChatMsg('Connection error: '+e.message,'ai');}
 }
 

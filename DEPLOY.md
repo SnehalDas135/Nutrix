@@ -10,15 +10,15 @@ No build step, no dependencies to install. You just need to (1) add your API key
 
 For deployment at a root URL like `https://your-site.com/`, most static hosts expect the HTML file to be named `index.html`. You can either rename `nutrix.html` to `index.html` before deploying, or keep the name and open the deployed page at `/nutrix.html`.
 
-## Step 1 — Get an Anthropic API key
+## Step 1 — Get a free Gemini API key
 
-1. Go to https://console.anthropic.com/settings/keys
-2. Create a new key
+1. Go to https://aistudio.google.com/apikey
+2. Create a new key (no credit card required for the free tier)
 3. Open `script.js`, find the `CONFIG` block near the top, and paste your key in:
    ```js
    var CONFIG = {
-     API_KEY: "sk-ant-...your key here...",
-     ...
+     API_KEY: "AIza...your key here...",
+     MODEL: "gemini-2.0-flash"
    };
    ```
 
@@ -54,26 +54,24 @@ If you want to share the URL with others or just don't want your key sitting in 
 
 Example using a Vercel serverless function:
 
-Create `api/chat.js` in your project:
+Create `api/gemini.js` in your project:
 ```js
 export default async function handler(req, res) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const model = req.body.model || "gemini-2.0-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify(req.body)
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req.body.payload)
   });
   const data = await response.json();
   res.status(200).json(data);
 }
 ```
 
-Then in Vercel's dashboard, add `ANTHROPIC_API_KEY` as an environment variable (Settings → Environment Variables) — never commit it to your code.
+Then in Vercel's dashboard, add `GEMINI_API_KEY` as an environment variable (Settings → Environment Variables) — never commit it to your code.
 
-Finally, in `script.js`, change `CONFIG.API_URL` from `https://api.anthropic.com/v1/messages` to `/api/chat`, and remove the `x-api-key` header from `apiHeaders()` (the proxy adds it for you).
+Finally, in `script.js`, change `geminiUrl()` to call `/api/gemini` instead of Google directly, and send the key only from the server.
 
 This way the key never reaches the browser.
 
