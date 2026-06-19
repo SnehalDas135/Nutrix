@@ -10,11 +10,11 @@
       serverless proxy instead (see DEPLOY.md for instructions).
    ============================================================ */
 var CONFIG = {
-  API_KEY: "YOUR_GEMINI_API_KEY_HERE",
+  API_KEY: "",
   MODEL: "gemini-2.0-flash"
 };
 
-if(!CONFIG.API_KEY || CONFIG.API_KEY === "YOUR_GEMINI_API_KEY_HERE"){
+if(!CONFIG.API_KEY){
   document.getElementById('setup-banner').classList.add('show');
 }
 
@@ -128,7 +128,7 @@ function initCharts(){
 }
 
 function checkKey(){
-  if(!CONFIG.API_KEY || CONFIG.API_KEY === "YOUR_GEMINI_API_KEY_HERE"){
+  if(!CONFIG.API_KEY){
     alert("Please add your Gemini API key in the CONFIG section of script.js first. Get one free at aistudio.google.com/apikey");
     return false;
   }
