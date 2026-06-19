@@ -9,12 +9,16 @@
       For a public deployment, route requests through a small
       serverless proxy instead (see DEPLOY.md for instructions).
    ============================================================ */
-var CONFIG = {
-  API_KEY: "",
-  MODEL: "gemini-2.0-flash"
+
+const CONFIG = {
+  API_KEY:  env.API_KEY,
+  MODEL: typeof env !== 'undefined' ? env.MODEL : "gemini-2.0-flash"
 };
 
+// ... rest of your Nutrix application logic (Chart.js, page switching, etc.) ...
+
 if(!CONFIG.API_KEY){
+  console.out(CONFIG.API_KEY);
   document.getElementById('setup-banner').classList.add('show');
 }
 
