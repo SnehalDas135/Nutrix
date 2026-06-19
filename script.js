@@ -1,13 +1,9 @@
 /* ============================================================
-   CONFIGURATION — put your Google Gemini API key here
+   CONFIGURATION
    ============================================================
    1. Get a free key at https://aistudio.google.com/apikey
-   2. Paste it below between the quotes.
-   3. IMPORTANT: this puts your key in client-side code. That's
-      fine for a personal/local tool, but if you deploy this
-      publicly, anyone who views source can see and use your key.
-      For a public deployment, route requests through a small
-      serverless proxy instead (see DEPLOY.md for instructions).
+   For Vercel deployment, keep API_KEY empty and add GEMINI_API_KEY
+   in Vercel's Environment Variables. The app will call /api/gemini.
    ============================================================ */
 
 const CONFIG = {
@@ -16,7 +12,7 @@ const CONFIG = {
 };
 // ... rest of your Nutrix application logic (Chart.js, page switching, etc.) ...
 
-if(!CONFIG.API_KEY){
+if(!CONFIG.API_KEY && location.protocol === 'file:'){
   document.getElementById('setup-banner').classList.add('show');
 }
 
@@ -49,11 +45,20 @@ async function callGemini(opts){
     generationConfig: {maxOutputTokens: opts.maxTokens || 1000}
   };
   if(opts.system) body.systemInstruction = {parts: [{text: opts.system}]};
-  var r = await fetch(geminiUrl(), {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)
-  });
+  var r;
+  if(CONFIG.API_KEY){
+    r = await fetch(geminiUrl(), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+  }else{
+    r = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model: CONFIG.MODEL, payload: body})
+    });
+  }
   var d = await r.json();
   if(d.error) return {error: d.error.message || 'Gemini API error'};
   var text = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
@@ -130,8 +135,8 @@ function initCharts(){
 }
 
 function checkKey(){
-  if(!CONFIG.API_KEY){
-    alert("Please add your Gemini API key in the CONFIG section of script.js first. Get one free at aistudio.google.com/apikey");
+  if(!CONFIG.API_KEY && location.protocol === 'file:'){
+    alert("AI needs either a local Gemini key in env.js, or a Vercel deployment with GEMINI_API_KEY set. For local proxy testing, run vercel dev.");
     return false;
   }
   return true;

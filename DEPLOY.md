@@ -1,13 +1,14 @@
 # Deploying Nutrix
 
 
-Nutrix is a small static web app split into three files:
+Nutrix is a small static web app with one Vercel API function:
 
 - `nutrix.html` for the page structure
 - `styles.css` for styling
 - `script.js` for app logic and API configuration
+- `api/gemini.js` for the server-side Gemini proxy on Vercel
 
-No build step, no dependencies to install. You just need to (1) add your API key and (2) put all three files somewhere they can be opened in a browser.
+No build step, no dependencies to install.
 
 For deployment at a root URL like `https://your-site.com/`, most static hosts expect the HTML file to be named `index.html`. You can either rename `nutrix.html` to `index.html` before deploying, or keep the name and open the deployed page at `/nutrix.html`.
 
@@ -15,66 +16,43 @@ For deployment at a root URL like `https://your-site.com/`, most static hosts ex
 
 1. Go to https://aistudio.google.com/apikey
 2. Create a new key (no credit card required for the free tier)
-3. Open `script.js`, find the `CONFIG` block near the top, and paste your key in:
-   ```js
-   var CONFIG = {
-     API_KEY: "AIza...your key here...",
-     MODEL: "gemini-2.5-flash-lite"
-   };
-   ```
+3. Do not paste the key into `env.js` for Vercel deployment.
 
-⚠️ **Security note:** this puts your key directly in client-side JavaScript. That's fine for personal/local use where only you can see the file. If you deploy this somewhere public (a real URL anyone can visit), anyone who views page source can steal your key and run up your bill. For a public-facing deployment, use the proxy approach in Step 4 instead of pasting the key directly.
-
-## Step 2 — Try it locally first
-
-Just double-click `nutrix.html` or open it in Chrome/Safari/Firefox. Everything works, including AI chat and photo analysis, as long as your key is set and your browser can reach the external CDN/API URLs.
-
-## Step 3 — Deploy for free (personal use, key embedded)
-
-**Option A: Netlify Drop (fastest, no account needed for testing)**
-1. Go to https://app.netlify.com/drop
-2. Rename `nutrix.html` to `index.html`, then drag the whole project folder, including the HTML file, `styles.css`, and `script.js`, onto the page
-3. You get a live URL instantly (e.g. `random-name.netlify.app`)
-4. To keep it permanently, create a free Netlify account when prompted
-
-**Option B: Vercel**
-1. Install the CLI: `npm i -g vercel`
-2. Rename `nutrix.html` to `index.html`, then in the folder containing the HTML file, `styles.css`, and `script.js`, run `vercel`
-3. Follow the prompts — you'll get a live URL
-
-**Option C: GitHub Pages**
-1. Rename `nutrix.html` to `index.html`, then create a new GitHub repo and upload the HTML file, `styles.css`, and `script.js`
-2. Go to Settings → Pages → set source to your main branch
-3. Your app will be live at `https://yourusername.github.io/reponame`
-
-Any of these takes under 5 minutes.
-
-## Step 4 — (Recommended for public use) Hide your API key with a proxy
-
-If you want to share the URL with others or just don't want your key sitting in plaintext, add a tiny serverless function that holds the key server-side, and have the app call that instead of Anthropic directly.
-
-Example using a Vercel serverless function:
-
-Create `api/gemini.js` in your project:
+Keep `env.js` like this:
 ```js
-export default async function handler(req, res) {
-  const model = req.body.model || "gemini-2.5-flash-lite";
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req.body.payload)
-  });
-  const data = await response.json();
-  res.status(200).json(data);
-}
+const env = {
+  API_KEY: "",
+  MODEL: "gemini-2.5-flash-lite"
+};
 ```
 
-Then in Vercel's dashboard, add `GEMINI_API_KEY` as an environment variable (Settings → Environment Variables) — never commit it to your code.
+## Step 2 — Add the key in Vercel
 
-Finally, in `script.js`, change `geminiUrl()` to call `/api/gemini` instead of Google directly, and send the key only from the server.
+In Vercel Dashboard:
 
-This way the key never reaches the browser.
+1. Open your project
+2. Go to Settings → Environment Variables
+3. Add `GEMINI_API_KEY`
+4. Paste your Gemini API key as the value
+5. Select Production, Preview, and Development
+6. Save, then redeploy
+
+## Step 3 — Deploy on Vercel
+
+1. Install the CLI: `npm i -g vercel`
+2. Rename `nutrix.html` to `index.html`, or open the deployed page at `/nutrix.html`
+3. Run `vercel`
+4. Follow the prompts
+5. Redeploy after adding `GEMINI_API_KEY`
+
+## Step 4 — Test locally with Vercel envs
+
+If you want to test the proxy locally:
+
+1. Run `vercel link`
+2. Run `vercel env pull .env.local`
+3. Run `vercel dev`
+4. Open the local Vercel URL
 
 ## Step 5 — Start using it
 
