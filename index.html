@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nutrix — Your health, simplified</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <script src="env.js"></script>
+<div class="app">
+
+<div id="setup-banner" class="setup-banner">
+  ⚠️ AI needs either a local Gemini key in <code>env.js</code>, or a Vercel deployment with <code>GEMINI_API_KEY</code> set in Environment Variables.
+</div>
+
+<div class="hero">
+  <div class="hero-eyebrow">Your health, simplified</div>
+  <div class="hero-wordmark">
+    <span class="hero-n">n</span><span class="hero-utrix">utrix</span>
+  </div>
+  <div class="hero-tagline"><em>Scientifically accurate &nbsp;·&nbsp; Beautifully minimal</em></div>
+</div>
+
+<div class="nav">
+  <button class="nav-btn active" data-page="today">Today</button>
+  <button class="nav-btn" data-page="trends">Trends</button>
+  <button class="nav-btn" data-page="ai">AI Chat</button>
+  <button class="nav-btn" data-page="profile">Profile</button>
+</div>
+
+<div id="page-today" class="page active">
+  <div class="section-label">Calories & macros</div>
+  <div class="rings-row">
+    <div class="ring-card">
+      <svg class="ring-svg" width="64" height="64" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="26" fill="none" stroke="#2c2c2e" stroke-width="6"/>
+        <circle id="ring-cal" class="ring-progress ring-progress-cal" cx="32" cy="32" r="26" fill="none" stroke="#0a84ff" stroke-width="6" stroke-linecap="round" stroke-dasharray="163.4" stroke-dashoffset="163.4" transform="rotate(-90 32 32)"/>
+      </svg>
+      <div class="ring-info">
+        <div class="ring-label">Calories</div>
+        <div class="ring-val text-cal" id="disp-cal">0</div>
+        <div class="ring-target" id="disp-cal-target">/ 2200 kcal</div>
+      </div>
+    </div>
+    <div class="ring-card">
+      <svg class="ring-svg" width="64" height="64" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="26" fill="none" stroke="#2c2c2e" stroke-width="6"/>
+        <circle id="ring-prot" class="ring-progress ring-progress-prot" cx="32" cy="32" r="26" fill="none" stroke="#5e5ce6" stroke-width="6" stroke-linecap="round" stroke-dasharray="163.4" stroke-dashoffset="163.4" transform="rotate(-90 32 32)"/>
+      </svg>
+      <div class="ring-info">
+        <div class="ring-label">Protein</div>
+        <div class="ring-val text-protein" id="disp-prot">0g</div>
+        <div class="ring-target" id="disp-prot-target">/ 165g</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="macro-grid">
+    <div class="macro-card">
+      <div class="macro-name">Carbs</div>
+      <div class="macro-num text-carbs" id="disp-carbs">0<span class="macro-unit">g</span></div>
+      <div class="macro-bar"><div id="bar-carbs" class="macro-fill fill-carbs"></div></div>
+    </div>
+    <div class="macro-card">
+      <div class="macro-name">Fat</div>
+      <div class="macro-num text-fat" id="disp-fat">0<span class="macro-unit">g</span></div>
+      <div class="macro-bar"><div id="bar-fat" class="macro-fill fill-fat"></div></div>
+    </div>
+    <div class="macro-card">
+      <div class="macro-name">Fiber</div>
+      <div class="macro-num text-fiber" id="disp-fiber">0<span class="macro-unit">g</span></div>
+      <div class="macro-bar"><div id="bar-fiber" class="macro-fill fill-fiber"></div></div>
+    </div>
+  </div>
+
+  <div class="section-label">Today's meals</div>
+  <div class="meal-list" id="meal-list"></div>
+
+  <div class="section-label">Log a meal</div>
+  <div class="add-row">
+    <input type="text" id="food-input" placeholder="e.g. 2 boiled eggs, 100g rice...">
+    <button class="btn-photo" id="photo-upload-btn">📷 Photo</button>
+    <button class="btn-add" id="log-food-btn">Log ↗</button>
+  </div>
+  <input type="file" id="photo-upload" class="hidden-input" accept="image/*">
+  <div id="today-photo-preview" class="today-photo-preview"></div>
+  <img id="preview-img" alt="Uploaded food preview">
+  <div id="ai-result"></div>
+</div>
+
+<div id="page-trends" class="page">
+  <div class="tab-row">
+    <button class="tab active" data-trend="daily">Daily</button>
+    <button class="tab" data-trend="weekly">Weekly</button>
+    <button class="tab" data-trend="monthly">Monthly</button>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header"><div class="chart-title" id="trend-title">This week</div></div>
+    <div class="chart-sub" id="trend-sub">Calorie intake vs target</div>
+    <div class="chart-legend-inline">
+      <span class="chart-legend-chip"><span class="legend-swatch legend-swatch-cal"></span>Calories</span>
+      <span class="chart-legend-chip"><span class="legend-line legend-line-target"></span>Target</span>
+    </div>
+    <div class="chart-wrap chart-wrap-trend"><canvas id="trend-chart"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title chart-title-spaced">Macro split</div>
+    <div class="chart-sub">Protein · Carbs · Fat breakdown</div>
+    <div class="chart-legend-inline">
+      <span class="chart-legend-chip"><span class="legend-dot bg-protein"></span>Protein</span>
+      <span class="chart-legend-chip"><span class="legend-dot bg-carbs"></span>Carbs</span>
+      <span class="chart-legend-chip"><span class="legend-dot bg-fat"></span>Fat</span>
+    </div>
+    <div class="chart-wrap chart-wrap-macro"><canvas id="macro-bar-chart"></canvas></div>
+  </div>
+
+  <div class="donut-section">
+    <div class="donut-card">
+      <div class="donut-title">Your intake</div>
+      <div class="donut-subtitle">Today's split</div>
+      <div class="donut-wrap"><canvas id="donut-actual"></canvas></div>
+      <div class="legend-row">
+        <div class="legend-item"><div class="legend-dot bg-protein"></div>Protein 30%</div>
+        <div class="legend-item"><div class="legend-dot bg-carbs"></div>Carbs 45%</div>
+        <div class="legend-item"><div class="legend-dot bg-fat"></div>Fat 25%</div>
+      </div>
+    </div>
+    <div class="donut-card">
+      <div class="donut-title">Ideal target</div>
+      <div class="donut-subtitle">For your goal</div>
+      <div class="donut-wrap"><canvas id="donut-ideal"></canvas></div>
+      <div class="legend-row">
+        <div class="legend-item"><div class="legend-dot bg-protein"></div>Protein 35%</div>
+        <div class="legend-item"><div class="legend-dot bg-carbs"></div>Carbs 40%</div>
+        <div class="legend-item"><div class="legend-dot bg-fat"></div>Fat 25%</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="page-ai" class="page">
+  <div class="ai-badge">✨ Powered by Gemini</div>
+  <div class="chat-area" id="chat-area">
+    <div class="chat-msg ai">Hey! I'm your Nutrix AI — powered by Gemini. Ask me anything about your nutrition, log meals by description, or share a food photo for instant analysis.</div>
+  </div>
+  <div class="typing" id="typing-indicator"><span></span><span></span><span></span></div>
+  <div class="chat-attach-area">
+    <input type="file" id="chat-photo" class="hidden-input" accept="image/*">
+    <button id="chat-photo-btn" class="btn-chip">📎 Attach food photo</button>
+    <div id="chat-preview" class="chat-preview"></div>
+  </div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Ask anything about nutrition...">
+    <button class="btn-send" id="send-chat-btn">Send</button>
+  </div>
+  <div class="quick-ask-row">
+    <button class="btn-chip" data-question="What should I eat post-workout?">Post-workout meals</button>
+    <button class="btn-chip" data-question="Am I hitting enough protein for muscle gain?">Protein check</button>
+    <button class="btn-chip" data-question="Give me a high-protein breakfast idea under 400 calories">Breakfast ideas</button>
+  </div>
+</div>
+
+<div id="page-profile" class="page">
+  <div class="section-label">Your details</div>
+  <div class="profile-section">
+    <div class="profile-row">
+      <div class="field-group"><div class="field-label">Age</div><input class="field-input" id="p-age" type="number" value="25" min="13" max="100" step="1"></div>
+      <div class="field-group"><div class="field-label">Gender</div><select class="field-input" id="p-gender"><option value="male">Male</option><option value="female">Female</option></select></div>
+    </div>
+    <div class="profile-row">
+      <div class="field-group"><div class="field-label">Height (cm)</div><input class="field-input" id="p-height" type="number" value="175" min="100" max="250" step="0.1"></div>
+      <div class="field-group"><div class="field-label">Weight (kg)</div><input class="field-input" id="p-weight" type="number" value="70" min="30" max="300" step="0.1"></div>
+    </div>
+    <div class="field-group"><div class="field-label">Activity level</div>
+      <select class="field-input" id="p-activity">
+        <option value="1.2">Sedentary (desk job)</option>
+        <option value="1.375">Light (1–3 days/week)</option>
+        <option value="1.55" selected>Moderate (3–5 days/week)</option>
+        <option value="1.725">Very active (6–7 days/week)</option>
+        <option value="1.9">Athlete (2× /day)</option>
+      </select>
+    </div>
+    <div class="field-group"><div class="field-label">Goal</div>
+      <select class="field-input" id="p-goal">
+        <option value="cut">Cutting (lose fat)</option>
+        <option value="maintain" selected>Maintain weight</option>
+        <option value="bulk">Bulking (build muscle)</option>
+        <option value="lean">Lean bulk</option>
+      </select>
+    </div>
+    <button class="btn-calc" id="calc-targets-btn">Calculate my targets</button>
+  </div>
+
+  <div class="section-label hidden-block" id="targets-label">Your scientific targets</div>
+  <div class="targets-grid hidden-block" id="targets-grid">
+    <div class="target-card"><div class="target-label">Calories</div><div class="target-val text-cal" id="t-cal">—<span class="target-unit">kcal</span></div></div>
+    <div class="target-card"><div class="target-label">Protein</div><div class="target-val text-protein" id="t-prot">—<span class="target-unit">g</span></div></div>
+    <div class="target-card"><div class="target-label">Carbs</div><div class="target-val text-carbs" id="t-carbs">—<span class="target-unit">g</span></div></div>
+    <div class="target-card"><div class="target-label">Fat</div><div class="target-val text-fat" id="t-fat">—<span class="target-unit">g</span></div></div>
+  </div>
+  <div class="section-label hidden-block" id="insight-label">How we calculated this</div>
+  <div id="insight-area"></div>
+</div>
+
+</div>
+
+<footer class="app-footer">Nutrix · Your health, simplified</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

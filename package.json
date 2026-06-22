@@ -1,0 +1,23 @@
+{
+  "name": "nutrix",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "api/server.js",
+  "scripts": {
+    "server": "vercel dev"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mongodb": "^7.3.0",
+    "mongoose": "^9.7.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "vercel": "^54.14.5"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
