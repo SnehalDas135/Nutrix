@@ -67,7 +67,48 @@ async function callGemini(opts){
   return {text: text};
 }
 
+<<<<<<< HEAD
+async function apiFetch(path, options){
+  var response = await fetch(path, Object.assign({
+    headers: {'Content-Type': 'application/json'}
+  }, options || {}));
+  var data = null;
+  try{
+    data = await response.json();
+  }catch(e){
+    data = {};
+  }
+  if(!response.ok){
+    throw new Error(data && data.error && data.error.message ? data.error.message : 'Request failed');
+  }
+  return data;
+}
+
+async function getOrCreateUserId(){
+  if(state.userId) return state.userId;
+  if(location.protocol === 'file:') return null;
+
+  var stored = '';
+  try{
+    stored = localStorage.getItem('nutrix_user_id') || '';
+  }catch(e){}
+
+  var data = await apiFetch('/api/users/anonymous', {
+    method: 'POST',
+    body: JSON.stringify({userId: stored})
+  });
+
+  state.userId = data.user && data.user.id;
+  if(state.userId){
+    try{localStorage.setItem('nutrix_user_id', state.userId);}catch(e){}
+  }
+  return state.userId;
+}
+
+var state={userId:null,calories:0,protein:0,carbs:0,fat:0,fiber:0,calTarget:2200,protTarget:165,carbTarget:248,fatTarget:61,fiberTarget:30,
+=======
 var state={calories:0,protein:0,carbs:0,fat:0,fiber:0,calTarget:2200,protTarget:165,carbTarget:248,fatTarget:61,fiberTarget:30,
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
   meals:[],
   chatHistory:[{role:'assistant',content:"Hey! I'm your Nutrix AI — powered by Gemini. Ask me anything about your nutrition, log meals by description, or share a food photo for instant analysis."}],
   chatPhotoB64:null,chatPhotoMime:null,pendingFoodPhotoB64:null,pendingFoodPhotoMime:null,pendingFoodPhotoName:null};
@@ -77,7 +118,11 @@ function showPage(id,btn){
   document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active');});
   document.getElementById('page-'+id).classList.add('active');
   if(btn){btn.classList.add('active');}
+<<<<<<< HEAD
+  if(id==='trends'){setTimeout(loadTrendData,80);}
+=======
   if(id==='trends'){setTimeout(initCharts,80);}
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
   if(id==='today'){setTimeout(animateRings,100);}
 }
 
@@ -101,11 +146,98 @@ function animateRings(){
 
 var trendChart=null,macroChart=null,donutActual=null,donutIdeal=null,trendMode='weekly';
 var trendData={
+<<<<<<< HEAD
+  daily:{labels:['12am','4am','8am','12pm','4pm','8pm'],cal:[0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0],c:[0,0,0,0,0,0],f:[0,0,0,0,0,0]}},
+  weekly:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],cal:[0,0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0,0],c:[0,0,0,0,0,0,0],f:[0,0,0,0,0,0,0]}},
+  monthly:{labels:['Week 1','Week 2','Week 3','Week 4','Week 5'],cal:[0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0],c:[0,0,0,0,0],f:[0,0,0,0,0]}}
+};
+
+function emptyTrend(period){
+  var labels={
+    daily:['12am','4am','8am','12pm','4pm','8pm'],
+    weekly:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+    monthly:['Week 1','Week 2','Week 3','Week 4','Week 5']
+  }[period];
+  return {
+    labels:labels,
+    cal:labels.map(function(){return 0;}),
+    target:state.calTarget || 2200,
+    macros:{
+      p:labels.map(function(){return 0;}),
+      c:labels.map(function(){return 0;}),
+      f:labels.map(function(){return 0;})
+    }
+  };
+}
+
+function startOfDay(date){
+  var next=new Date(date);
+  next.setHours(0,0,0,0);
+  return next;
+}
+
+function addDays(date,days){
+  var next=new Date(date);
+  next.setDate(next.getDate()+days);
+  return next;
+}
+
+function addMonths(date,months){
+  var next=new Date(date);
+  next.setMonth(next.getMonth()+months);
+  return next;
+}
+
+function getWeekStart(date){
+  var start=startOfDay(date);
+  var day=start.getDay();
+  var diff=day===0 ? -6 : 1-day;
+  return addDays(start,diff);
+}
+
+function getTrendRange(period){
+  var now=new Date();
+  if(period==='daily'){
+    var dayStart=startOfDay(now);
+    return {start:dayStart,end:addDays(dayStart,1)};
+  }
+  if(period==='monthly'){
+    var monthStart=new Date(now.getFullYear(),now.getMonth(),1);
+    return {start:monthStart,end:addMonths(monthStart,1)};
+  }
+  var weekStart=getWeekStart(now);
+  return {start:weekStart,end:addDays(weekStart,7)};
+}
+
+function getTrendBucket(period,date,rangeStart){
+  if(period==='daily') return Math.min(Math.floor(date.getHours()/4),5);
+  if(period==='monthly') return Math.min(Math.floor((date.getDate()-1)/7),4);
+  return Math.floor((startOfDay(date).getTime()-rangeStart.getTime())/86400000);
+}
+
+function refreshLocalTrendData(period){
+  var data=emptyTrend(period);
+  var range=getTrendRange(period);
+  state.meals.forEach(function(meal){
+    var date=new Date(meal.eatenAt || meal.eaten_at || meal.createdAt || meal.created_at || Date.now());
+    if(isNaN(date.getTime()) || date<range.start || date>=range.end) return;
+    var bucket=getTrendBucket(period,date,range.start);
+    if(bucket<0 || bucket>=data.labels.length) return;
+    data.cal[bucket]+=Number(meal.calories)||0;
+    data.macros.p[bucket]+=Number(meal.protein)||0;
+    data.macros.c[bucket]+=Number(meal.carbs)||0;
+    data.macros.f[bucket]+=Number(meal.fat)||0;
+  });
+  trendData[period]=data;
+}
+
+=======
   daily:{labels:['6am','9am','12pm','3pm','6pm','9pm'],cal:[0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0],c:[0,0,0,0,0,0],f:[0,0,0,0,0,0]}},
   weekly:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],cal:[0,0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0,0],c:[0,0,0,0,0,0,0],f:[0,0,0,0,0,0,0]}},
   monthly:{labels:['Week 1','Week 2','Week 3','Week 4'],cal:[0,0,0,0],target:2200,macros:{p:[0,0,0,0],c:[0,0,0,0],f:[0,0,0,0]}}
 };
 
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 function switchTrend(mode,btn){
   trendMode=mode;
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
@@ -114,7 +246,51 @@ function switchTrend(mode,btn){
   var subs={daily:'Cumulative calorie intake',weekly:'Daily calories vs target',monthly:'Weekly averages'};
   document.getElementById('trend-title').textContent=titles[mode];
   document.getElementById('trend-sub').textContent=subs[mode];
+<<<<<<< HEAD
+  loadTrendData();
+}
+
+function normalizeTrendData(data){
+  if(!data || !data.labels || !data.cal || !data.macros) return null;
+  return {
+    labels: data.labels,
+    cal: data.cal,
+    target: data.target || state.calTarget || 2200,
+    macros: {
+      p: data.macros.p || data.macros.protein || [],
+      c: data.macros.c || data.macros.carbs || [],
+      f: data.macros.f || data.macros.fat || []
+    }
+  };
+}
+
+async function loadTrendData(){
+  refreshLocalTrendData(trendMode);
+
+  if(location.protocol === 'file:'){
+    initCharts();
+    return;
+  }
+
+  try{
+    state.trendsLoading=true;
+    var userId=await getOrCreateUserId();
+    if(!userId){
+      initCharts();
+      return;
+    }
+    var data=await apiFetch('/api/trends?userId='+encodeURIComponent(userId)+'&period='+encodeURIComponent(trendMode));
+    var normalized=normalizeTrendData(data);
+    if(normalized) trendData[trendMode]=normalized;
+  }catch(e){
+    console.warn('Could not load trends from database:', e.message);
+  }finally{
+    state.trendsLoading=false;
+    initCharts();
+  }
+=======
   initCharts();
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 }
 
 function initCharts(){
@@ -187,6 +363,59 @@ function renderMealList(){
   });
 }
 
+<<<<<<< HEAD
+function getMealId(meal){
+  return meal && (meal.id || meal._id);
+}
+
+function isTrendsPageActive(){
+  var page=document.getElementById('page-trends');
+  return page && page.classList.contains('active');
+}
+
+async function persistMealNutrition(action,meal){
+  if(location.protocol === 'file:') return;
+
+  try{
+    var userId=await getOrCreateUserId();
+    if(!userId) return;
+
+    var mealId=getMealId(meal);
+    var payload={
+      userId:userId,
+      foodName:meal.foodName,
+      calories:meal.calories,
+      protein:meal.protein,
+      carbs:meal.carbs,
+      fat:meal.fat,
+      fiber:meal.fiber,
+      source:'ai'
+    };
+    var saved;
+
+    if(action==='update_last' && mealId){
+      saved=await apiFetch('/api/meals/'+encodeURIComponent(mealId), {
+        method:'PATCH',
+        body:JSON.stringify(payload)
+      });
+    }else{
+      saved=await apiFetch('/api/meals', {
+        method:'POST',
+        body:JSON.stringify(payload)
+      });
+    }
+
+    if(saved && saved.meal && saved.meal.id){
+      meal.id=saved.meal.id;
+    }
+    if(isTrendsPageActive()) loadTrendData();
+  }catch(e){
+    console.warn('Could not save meal to database:', e.message);
+  }
+}
+
+=======
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 function saveMealNutrition(action,meal){
   if(action==='update_last' && state.meals.length){
     state.meals[state.meals.length-1]=meal;
@@ -196,6 +425,10 @@ function saveMealNutrition(action,meal){
   recalculateTotals();
   renderMealList();
   animateRings();
+<<<<<<< HEAD
+  persistMealNutrition(action,meal);
+=======
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 }
 
 function applyManualCorrectionRequest(text,res){
@@ -392,3 +625,7 @@ function calcTargets(){
 
 bindEvents();
 setTimeout(animateRings,350);
+<<<<<<< HEAD
+// export default app;
+=======
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1

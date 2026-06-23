@@ -1,3 +1,14 @@
+<<<<<<< HEAD
+node_modules/
+.env
+.env.local
+env.js
+bun.lockb
+.vercel
+node_modules/node_modules/
+.env*
+=======
 env.js
 
 
+>>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
