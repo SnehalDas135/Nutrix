@@ -7,12 +7,7 @@
   "scripts": {
     "server": "vercel dev"
   },
-  "dependencies": {
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "mongodb": "^7.3.0",
-    "mongoose": "^9.7.1"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/bun": "latest",
     "vercel": "^54.14.5"

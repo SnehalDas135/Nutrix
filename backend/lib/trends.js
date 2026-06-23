@@ -89,22 +89,11 @@ function numberValue(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export async function getTrendData(db, { userId, period }) {
+export function getTrendData({ meals = [], profile = null, period }) {
   const normalized = normalizePeriod(period);
-  const profile = userId
-    ? await db.collection('profiles').findOne({ user_id: userId })
-    : null;
   const data = emptyTrendData(normalized, profile?.calorieTarget || 2200);
 
-  if (!userId) {
-    return data;
-  }
-
   const { start, end } = getRange(normalized);
-  const meals = await db.collection('meals').find({
-    $or: [{ user_id: userId }, { userId }]
-  }).toArray();
-
   meals.forEach((meal) => {
     const date = getMealDate(meal);
     if (date < start || date >= end) {

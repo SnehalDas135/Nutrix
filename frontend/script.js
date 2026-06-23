@@ -12,8 +12,81 @@ const CONFIG = {
 };
 // ... rest of your Nutrix application logic (Chart.js, page switching, etc.) ...
 
+var CLIENT_COOKIES={
+  userId:'nutrix_client_user_id',
+  profile:'nutrix_client_profile',
+  meals:'nutrix_client_meals'
+};
+var COOKIE_MAX_AGE=60*60*24*365;
+var COOKIE_MEAL_LIMIT=20;
+
 if(!CONFIG.API_KEY && location.protocol === 'file:'){
   document.getElementById('setup-banner').classList.add('show');
+}
+
+function readCookie(name){
+  return document.cookie.split(';').map(function(part){return part.trim();}).reduce(function(value,part){
+    if(value) return value;
+    return part.indexOf(name+'=')===0 ? decodeURIComponent(part.slice(name.length+1)) : '';
+  },'');
+}
+
+function writeCookie(name,value){
+  document.cookie=name+'='+encodeURIComponent(value)+'; Path=/; Max-Age='+COOKIE_MAX_AGE+'; SameSite=Lax';
+}
+
+function encodeCookieJson(value){
+  return btoa(unescape(encodeURIComponent(JSON.stringify(value))));
+}
+
+function decodeCookieJson(value,fallback){
+  if(!value) return fallback;
+  try{
+    return JSON.parse(decodeURIComponent(escape(atob(value))));
+  }catch(e){
+    return fallback;
+  }
+}
+
+function getCookieUserId(){
+  var existing=readCookie(CLIENT_COOKIES.userId);
+  if(existing) return existing;
+  var next=window.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+'-'+Math.random().toString(36).slice(2);
+  writeCookie(CLIENT_COOKIES.userId,next);
+  return next;
+}
+
+function saveStateCookies(){
+  writeCookie(CLIENT_COOKIES.userId,state.userId || getCookieUserId());
+  writeCookie(CLIENT_COOKIES.profile,encodeCookieJson({
+    age:parseInt(document.getElementById('p-age').value,10) || 25,
+    gender:document.getElementById('p-gender').value,
+    heightCm:parseFloat(document.getElementById('p-height').value) || 175,
+    weightKg:parseFloat(document.getElementById('p-weight').value) || 70,
+    activityLevel:parseFloat(document.getElementById('p-activity').value) || 1.55,
+    goal:document.getElementById('p-goal').value,
+    calorieTarget:state.calTarget,
+    proteinTarget:state.protTarget,
+    carbTarget:state.carbTarget,
+    fatTarget:state.fatTarget,
+    fiberTarget:state.fiberTarget
+  }));
+  writeCookie(CLIENT_COOKIES.meals,encodeCookieJson(state.meals.slice(-COOKIE_MEAL_LIMIT)));
+}
+
+function loadStateCookies(){
+  var userId=readCookie(CLIENT_COOKIES.userId);
+  var profile=decodeCookieJson(readCookie(CLIENT_COOKIES.profile),null);
+  var meals=decodeCookieJson(readCookie(CLIENT_COOKIES.meals),[]);
+  if(userId) state.userId=userId;
+  if(profile) applyProfile(profile);
+  if(Array.isArray(meals) && meals.length){
+    state.meals=meals;
+    recalculateTotals();
+    renderMealList();
+    animateRings();
+    refreshLocalTrendData(trendMode);
+  }
 }
 
 function geminiUrl(){
@@ -67,9 +140,9 @@ async function callGemini(opts){
   return {text: text};
 }
 
-<<<<<<< HEAD
 async function apiFetch(path, options){
   var response = await fetch(path, Object.assign({
+    credentials: 'same-origin',
     headers: {'Content-Type': 'application/json'}
   }, options || {}));
   var data = null;
@@ -86,43 +159,99 @@ async function apiFetch(path, options){
 
 async function getOrCreateUserId(){
   if(state.userId) return state.userId;
-  if(location.protocol === 'file:') return null;
-
-  var stored = '';
-  try{
-    stored = localStorage.getItem('nutrix_user_id') || '';
-  }catch(e){}
+  state.userId=getCookieUserId();
+  if(location.protocol === 'file:') return state.userId;
 
   var data = await apiFetch('/api/users/anonymous', {
     method: 'POST',
-    body: JSON.stringify({userId: stored})
+    body: JSON.stringify({userId:state.userId})
   });
 
   state.userId = data.user && data.user.id;
-  if(state.userId){
-    try{localStorage.setItem('nutrix_user_id', state.userId);}catch(e){}
-  }
+  writeCookie(CLIENT_COOKIES.userId,state.userId);
   return state.userId;
 }
 
 var state={userId:null,calories:0,protein:0,carbs:0,fat:0,fiber:0,calTarget:2200,protTarget:165,carbTarget:248,fatTarget:61,fiberTarget:30,
-=======
-var state={calories:0,protein:0,carbs:0,fat:0,fiber:0,calTarget:2200,protTarget:165,carbTarget:248,fatTarget:61,fiberTarget:30,
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
   meals:[],
   chatHistory:[{role:'assistant',content:"Hey! I'm your Nutrix AI — powered by Gemini. Ask me anything about your nutrition, log meals by description, or share a food photo for instant analysis."}],
-  chatPhotoB64:null,chatPhotoMime:null,pendingFoodPhotoB64:null,pendingFoodPhotoMime:null,pendingFoodPhotoName:null};
+  chatPhotoB64:null,chatPhotoMime:null,pendingFoodPhotoB64:null,pendingFoodPhotoMime:null,pendingFoodPhotoName:null,
+  geminiQueue:[],geminiQueueRunning:false,geminiQueueTimer:null};
+
+function isHighDemandError(message){
+  return /high demand|try again later|overloaded|unavailable|503/i.test(String(message || ''));
+}
+
+function ensureQueueIndicator(){
+  var indicator=document.getElementById('gemini-queue-indicator');
+  if(indicator) return indicator;
+  indicator=document.createElement('div');
+  indicator.id='gemini-queue-indicator';
+  indicator.className='queue-indicator';
+  indicator.innerHTML='<span class="queue-dot"></span><span id="gemini-queue-text">Queued</span>';
+  document.body.appendChild(indicator);
+  return indicator;
+}
+
+function updateQueueIndicator(){
+  var indicator=ensureQueueIndicator();
+  var text=document.getElementById('gemini-queue-text');
+  var count=state.geminiQueue.length;
+  indicator.classList.toggle('show', count>0 || state.geminiQueueRunning);
+  text.textContent=state.geminiQueueRunning ? 'Retrying Gemini' : count+' queued';
+}
+
+function scheduleGeminiQueue(delay){
+  if(state.geminiQueueTimer) return;
+  state.geminiQueueTimer=setTimeout(processGeminiQueue, delay || 12000);
+}
+
+function enqueueGeminiRequest(item){
+  item.attempts=0;
+  state.geminiQueue.push(item);
+  updateQueueIndicator();
+  scheduleGeminiQueue(12000);
+}
+
+async function processGeminiQueue(){
+  state.geminiQueueTimer=null;
+  if(state.geminiQueueRunning || !state.geminiQueue.length) return;
+
+  var item=state.geminiQueue[0];
+  item.attempts+=1;
+  state.geminiQueueRunning=true;
+  updateQueueIndicator();
+
+  try{
+    var result=await callGemini(item.opts);
+    if(result.error && isHighDemandError(result.error)){
+      state.geminiQueueRunning=false;
+      updateQueueIndicator();
+      scheduleGeminiQueue(Math.min(60000, 10000 + item.attempts * 10000));
+      return;
+    }
+    state.geminiQueue.shift();
+    if(result.error){
+      item.onError(result.error);
+    }else{
+      item.onSuccess(result.text);
+    }
+  }catch(error){
+    state.geminiQueue.shift();
+    item.onError(error.message || 'Gemini retry failed');
+  }finally{
+    state.geminiQueueRunning=false;
+    updateQueueIndicator();
+    if(state.geminiQueue.length) scheduleGeminiQueue(1500);
+  }
+}
 
 function showPage(id,btn){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active');});
   document.getElementById('page-'+id).classList.add('active');
   if(btn){btn.classList.add('active');}
-<<<<<<< HEAD
   if(id==='trends'){setTimeout(loadTrendData,80);}
-=======
-  if(id==='trends'){setTimeout(initCharts,80);}
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
   if(id==='today'){setTimeout(animateRings,100);}
 }
 
@@ -146,7 +275,6 @@ function animateRings(){
 
 var trendChart=null,macroChart=null,donutActual=null,donutIdeal=null,trendMode='weekly';
 var trendData={
-<<<<<<< HEAD
   daily:{labels:['12am','4am','8am','12pm','4pm','8pm'],cal:[0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0],c:[0,0,0,0,0,0],f:[0,0,0,0,0,0]}},
   weekly:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],cal:[0,0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0,0],c:[0,0,0,0,0,0,0],f:[0,0,0,0,0,0,0]}},
   monthly:{labels:['Week 1','Week 2','Week 3','Week 4','Week 5'],cal:[0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0],c:[0,0,0,0,0],f:[0,0,0,0,0]}}
@@ -230,14 +358,6 @@ function refreshLocalTrendData(period){
   });
   trendData[period]=data;
 }
-
-=======
-  daily:{labels:['6am','9am','12pm','3pm','6pm','9pm'],cal:[0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0],c:[0,0,0,0,0,0],f:[0,0,0,0,0,0]}},
-  weekly:{labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],cal:[0,0,0,0,0,0,0],target:2200,macros:{p:[0,0,0,0,0,0,0],c:[0,0,0,0,0,0,0],f:[0,0,0,0,0,0,0]}},
-  monthly:{labels:['Week 1','Week 2','Week 3','Week 4'],cal:[0,0,0,0],target:2200,macros:{p:[0,0,0,0],c:[0,0,0,0],f:[0,0,0,0]}}
-};
-
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 function switchTrend(mode,btn){
   trendMode=mode;
   document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});
@@ -246,7 +366,6 @@ function switchTrend(mode,btn){
   var subs={daily:'Cumulative calorie intake',weekly:'Daily calories vs target',monthly:'Weekly averages'};
   document.getElementById('trend-title').textContent=titles[mode];
   document.getElementById('trend-sub').textContent=subs[mode];
-<<<<<<< HEAD
   loadTrendData();
 }
 
@@ -288,9 +407,6 @@ async function loadTrendData(){
     state.trendsLoading=false;
     initCharts();
   }
-=======
-  initCharts();
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 }
 
 function initCharts(){
@@ -363,7 +479,6 @@ function renderMealList(){
   });
 }
 
-<<<<<<< HEAD
 function getMealId(meal){
   return meal && (meal.id || meal._id);
 }
@@ -407,15 +522,14 @@ async function persistMealNutrition(action,meal){
 
     if(saved && saved.meal && saved.meal.id){
       meal.id=saved.meal.id;
+      saveStateCookies();
     }
     if(isTrendsPageActive()) loadTrendData();
   }catch(e){
-    console.warn('Could not save meal to database:', e.message);
+    console.warn('Could not save meal to cookies:', e.message);
   }
 }
 
-=======
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 function saveMealNutrition(action,meal){
   if(action==='update_last' && state.meals.length){
     state.meals[state.meals.length-1]=meal;
@@ -425,10 +539,8 @@ function saveMealNutrition(action,meal){
   recalculateTotals();
   renderMealList();
   animateRings();
-<<<<<<< HEAD
+  saveStateCookies();
   persistMealNutrition(action,meal);
-=======
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
 }
 
 function applyManualCorrectionRequest(text,res){
@@ -490,7 +602,24 @@ async function logFoodAI(){
     var parts=[];
     if(state.pendingFoodPhotoB64) parts.push({inline_data:{mime_type:state.pendingFoodPhotoMime,data:state.pendingFoodPhotoB64}});
     parts.push({text:prompt});
-    var d=await callGemini({contents:[{role:'user',parts:parts}]});
+    var request={contents:[{role:'user',parts:parts}]};
+    var d=await callGemini(request);
+    if(d.error && isHighDemandError(d.error)){
+      res.innerHTML='<span class="queue-dot"></span><span class="ai-muted">Gemini is busy. Meal analysis queued.</span>';
+      enqueueGeminiRequest({
+        opts:request,
+        onSuccess:function(text){
+          res.style.display='block';
+          applyNutritionText(text, res, txt || 'Analysed meal');
+        },
+        onError:function(message){
+          res.style.display='block';
+          res.innerHTML='<span class="ai-error">API error: '+message+'</span>';
+        }
+      });
+      clearPendingFoodPhoto();
+      return;
+    }
     if(d.error){res.innerHTML='<span class="ai-error">API error: '+d.error+'</span>';return;}
     applyNutritionText(d.text, res, txt || 'Analysed meal');
     clearPendingFoodPhoto();
@@ -544,11 +673,28 @@ async function sendChat(){
   var typing=document.getElementById('typing-indicator');typing.style.display='flex';
   var sys='You are the Nutrix AI — a knowledgeable, concise nutrition coach. User targets: '+state.calTarget+' kcal, Protein '+state.protTarget+'g, Carbs '+state.carbTarget+'g, Fat '+state.fatTarget+'g. Today consumed: '+state.calories+' kcal, Protein '+state.protein+'g, Carbs '+state.carbs+'g. Give evidence-based, practical advice. Be warm but concise (3–4 sentences max unless explaining something complex).';
   try{
-    var d=await callGemini({
+    var request={
       system: sys,
       contents: toGeminiContents(state.chatHistory.slice(-10))
-    });
+    };
+    var d=await callGemini(request);
     typing.style.display='none';
+    if(d.error && isHighDemandError(d.error)){
+      var queuedMsg=addChatMsg('Queued until Gemini is available.','ai queued');
+      enqueueGeminiRequest({
+        opts:request,
+        onSuccess:function(text){
+          queuedMsg.className='chat-msg ai';
+          queuedMsg.textContent=text;
+          state.chatHistory.push({role:'assistant',content:text});
+        },
+        onError:function(message){
+          queuedMsg.className='chat-msg ai';
+          queuedMsg.textContent='API error: '+message;
+        }
+      });
+      return;
+    }
     if(d.error){addChatMsg('API error: '+d.error,'ai');return;}
     addChatMsg(d.text,'ai');
     state.chatHistory.push({role:'assistant',content:d.text});
@@ -559,6 +705,7 @@ function addChatMsg(text,role){
   var area=document.getElementById('chat-area');
   var div=document.createElement('div');div.className='chat-msg '+role;div.textContent=text;
   area.appendChild(div);area.scrollTop=area.scrollHeight;
+  return div;
 }
 
 function quickAsk(q){document.getElementById('chat-input').value=q;sendChat();}
@@ -593,6 +740,67 @@ function bindEvents(){
   document.getElementById('calc-targets-btn').addEventListener('click',calcTargets);
 }
 
+function updateTargetDisplay(profile){
+  state.calTarget=profile.calorieTarget;
+  state.protTarget=profile.proteinTarget;
+  state.carbTarget=profile.carbTarget;
+  state.fatTarget=profile.fatTarget;
+  state.fiberTarget=profile.fiberTarget || 30;
+  document.getElementById('t-cal').innerHTML=state.calTarget+'<span class="target-unit">kcal</span>';
+  document.getElementById('t-prot').innerHTML=state.protTarget+'<span class="target-unit">g</span>';
+  document.getElementById('t-carbs').innerHTML=state.carbTarget+'<span class="target-unit">g</span>';
+  document.getElementById('t-fat').innerHTML=state.fatTarget+'<span class="target-unit">g</span>';
+  document.getElementById('targets-grid').style.display='grid';
+  document.getElementById('targets-label').style.display='block';
+}
+
+function applyProfile(profile){
+  if(!profile) return;
+  document.getElementById('p-age').value=profile.age || 25;
+  document.getElementById('p-gender').value=profile.gender || 'male';
+  document.getElementById('p-height').value=profile.heightCm || 175;
+  document.getElementById('p-weight').value=profile.weightKg || 70;
+  document.getElementById('p-activity').value=String(profile.activityLevel || 1.55);
+  document.getElementById('p-goal').value=profile.goal || 'maintain';
+  updateTargetDisplay(profile);
+  animateRings();
+}
+
+async function saveProfile(profile){
+  saveStateCookies();
+  if(location.protocol === 'file:') return;
+  try{
+    await getOrCreateUserId();
+    await apiFetch('/api/profile', {
+      method:'PUT',
+      body:JSON.stringify(profile)
+    });
+  }catch(e){
+    console.warn('Could not save profile to cookies:', e.message);
+  }
+}
+
+async function loadSavedState(){
+  loadStateCookies();
+  if(location.protocol === 'file:') return;
+  try{
+    await getOrCreateUserId();
+    var profileData=await apiFetch('/api/profile');
+    applyProfile(profileData.profile);
+    var mealData=await apiFetch('/api/meals');
+    if(mealData.meals && mealData.meals.length){
+      state.meals=mealData.meals;
+      recalculateTotals();
+      renderMealList();
+      animateRings();
+      refreshLocalTrendData(trendMode);
+    }
+    saveStateCookies();
+  }catch(e){
+    console.warn('Could not load cookie session:', e.message);
+  }
+}
+
 function calcTargets(){
   var age=Math.round(clampNumber(document.getElementById('p-age').value,13,100,25));
   var gender=document.getElementById('p-gender').value;
@@ -611,21 +819,14 @@ function calcTargets(){
   var prot=Math.round(w*pm[goal]);
   var fat=Math.round(cal*0.25/9);
   var carbs=Math.round((cal-(prot*4)-(fat*9))/4);
-  state.calTarget=cal;state.protTarget=prot;state.carbTarget=carbs;state.fatTarget=fat;
-  document.getElementById('t-cal').innerHTML=cal+'<span class="target-unit">kcal</span>';
-  document.getElementById('t-prot').innerHTML=prot+'<span class="target-unit">g</span>';
-  document.getElementById('t-carbs').innerHTML=carbs+'<span class="target-unit">g</span>';
-  document.getElementById('t-fat').innerHTML=fat+'<span class="target-unit">g</span>';
-  document.getElementById('targets-grid').style.display='grid';
-  document.getElementById('targets-label').style.display='block';
+  var profile={age:age,gender:gender,heightCm:h,weightKg:w,activityLevel:act,goal:goal,calorieTarget:cal,proteinTarget:prot,carbTarget:carbs,fatTarget:fat,fiberTarget:30};
+  updateTargetDisplay(profile);
   document.getElementById('insight-label').style.display='block';
   document.getElementById('insight-area').innerHTML='<div class="insight-card"><div class="insight-icon insight-icon-cal">⚡</div><div class="insight-text"><strong>Mifflin-St Jeor equation</strong> — the gold standard for BMR estimation, accurate within ±10% for most adults. Your TDEE is <strong>'+tdee+' kcal/day</strong>.</div></div><div class="insight-card"><div class="insight-icon insight-icon-protein">💪</div><div class="insight-text">Protein set at <strong>'+pm[goal]+'g/kg</strong> body weight per ISSN guidelines — optimised for your '+goal+' phase to maximise muscle protein synthesis.</div></div>';
   animateRings();
+  saveProfile(profile);
 }
 
 bindEvents();
+loadSavedState();
 setTimeout(animateRings,350);
-<<<<<<< HEAD
-// export default app;
-=======
->>>>>>> 31a8d0f55f4ef128f2b2f8cbc9b444d70dd662b1
